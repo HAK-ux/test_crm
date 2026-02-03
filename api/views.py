@@ -1,9 +1,12 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-
 from .models import Restaurant, Customer, Order
 from .serializers import RestaurantSerializer, CustomerSerializer, OrderSerializer
+from django.utils import timezone
+from django.db.models.functions import Coalesce
+from datetime import timedelta
+from django.db.models import Sum, Count, Avg, DecimalField
 
 @api_view(["GET", "POST"])
 def restaurant_list(request):
@@ -27,7 +30,7 @@ def customer_list(request):
         return Response(serializer.data)
     
     elif request.method == "POST":
-        serializer = CustomerSerializer(request.data)
+        serializer = CustomerSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -112,3 +115,76 @@ def order_detail(request, pk: int):
     elif request.method == "DELETE":
         order.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+@api_view(["GET"])
+def restaurant_dashboard(request, pk: int):
+    #validate restaurant exists
+    try:
+        restaurant = Restaurant.objects.get(pk=pk)
+    except Restaurant.DoesNotExist:
+        return Response("NOT FOUND", status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        days = int(request.query_params.get("days", 7))
+        if days <= 0 or days > 365:
+            raise ValueError()
+    except ValueError:
+        return Response({"detail": "days must be an integer between 1 and 365."},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    since = timezone.now() - timedelta(days=days)
+
+    orders_qs = Order.objects.filter(restaurant=restaurant, created_at__gte=since)
+
+    # Aggregate totals
+    totals = orders_qs.aggregate(
+    orders_count=Count("id"),
+    revenue_total=Coalesce(
+        Sum("total_amount"),
+        0,
+        output_field=DecimalField(max_digits=10, decimal_places=2),
+    ),
+    avg_order_value=Coalesce(
+        Avg("total_amount"),
+        0,
+        output_field=DecimalField(max_digits=10, decimal_places=2),
+    ),
+    unique_customers=Count("customer_id", distinct=True),
+)
+
+    # Top customers by spend (limit 5)
+    top_customers = (
+    orders_qs.values("customer_id", "customer__email")
+    .annotate(
+        total_spend=Coalesce(
+            Sum("total_amount"),
+            0,
+            output_field=DecimalField(max_digits=10, decimal_places=2),
+            ),
+        orders=Count("id"),
+        )
+    .order_by("-total_spend")[:5]
+    )   
+
+    data = {
+        "restaurant": {"id": restaurant.id, "name": restaurant.name},
+        "window_days": days,
+        "since": since.isoformat(),
+        "totals": {
+            "orders_count": totals["orders_count"],
+            "revenue_total": str(totals["revenue_total"]),      # Decimal -> string for JSON
+            "avg_order_value": str(totals["avg_order_value"]),  # Decimal -> string for JSON
+            "unique_customers": totals["unique_customers"],
+        },
+        "top_customers": [
+            {
+                "customer_id": row["customer_id"],
+                "email": row["customer__email"],
+                "total_spend": str(row["total_spend"]),
+                "orders": row["orders"],
+            }
+            for row in top_customers
+        ],
+    }
+
+    return Response(data)
