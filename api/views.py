@@ -8,6 +8,7 @@ from django.db.models.functions import Coalesce
 from datetime import timedelta
 from django.db.models import Sum, Count, Avg, DecimalField
 from django.core.cache import cache
+from .tasks import recompute_dashboard_cache
 
 @api_view(["GET", "POST"])
 def restaurant_list(request):
@@ -198,3 +199,23 @@ def restaurant_dashboard(request, pk: int):
 
     cache.set(cache_key, data, timeout=60)  # cache for 60s
     return Response(data)
+
+
+@api_view(["POST"])
+def restaurant_dashboard_refresh(request, pk: int):
+    # optional ?days=7
+    try:
+        days = int(request.query_params.get("days", 7))
+        if days <= 0 or days > 365:
+            raise ValueError()
+    except ValueError:
+        return Response({"detail": "days must be an integer between 1 and 365."},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    # enqueue background job
+    job = recompute_dashboard_cache.delay(pk, days)
+
+    return Response(
+        {"status": "queued", "task_id": job.id, "restaurant_id": pk, "days": days},
+        status=status.HTTP_202_ACCEPTED,
+    )

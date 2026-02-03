@@ -96,6 +96,13 @@ CACHES = {
     }
 }
 
+CELERY_BROKER_URL = "redis://127.0.0.1:6379/0"   # Redis DB 0 for broker
+CELERY_RESULT_BACKEND = "redis://127.0.0.1:6379/0"  # optional but useful for dev
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "America/Edmonton"
+
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 
