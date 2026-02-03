@@ -182,15 +182,15 @@ def restaurant_dashboard(request, pk: int):
         "since": since.isoformat(),
         "totals": {
             "orders_count": totals["orders_count"],
-            "revenue_total": str(totals["revenue_total"]),      # Decimal -> string for JSON
-            "avg_order_value": str(totals["avg_order_value"]),  # Decimal -> string for JSON
+            "revenue_total": f"{totals['revenue_total']:.2f}",  # Decimal -> string for JSON
+            "avg_order_value": f"{totals['avg_order_value']:.2f}",  # Decimal -> string for JSON
             "unique_customers": totals["unique_customers"],
         },
         "top_customers": [
             {
                 "customer_id": row["customer_id"],
                 "email": row["customer__email"],
-                "total_spend": str(row["total_spend"]),
+                "total_spend": f"{row['total_spend']:.2f}",
                 "orders": row["orders"],
             }
             for row in top_customers
