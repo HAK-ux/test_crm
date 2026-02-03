@@ -7,6 +7,7 @@ from django.utils import timezone
 from django.db.models.functions import Coalesce
 from datetime import timedelta
 from django.db.models import Sum, Count, Avg, DecimalField
+from django.core.cache import cache
 
 @api_view(["GET", "POST"])
 def restaurant_list(request):
@@ -47,6 +48,8 @@ def order_list(request):
         serializer = OrderSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
+            for d in [7, 30, 90]:
+                cache.delete(f"dashboard:restaurant:{serializer.data['restaurant']}:days:{d}")
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -133,7 +136,13 @@ def restaurant_dashboard(request, pk: int):
                         status=status.HTTP_400_BAD_REQUEST)
 
     since = timezone.now() - timedelta(days=days)
+    
+    cache_key = f"dashboard:restaurant:{pk}:days:{days}"
 
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response(cached)
+    
     orders_qs = Order.objects.filter(restaurant=restaurant, created_at__gte=since)
 
     # Aggregate totals
@@ -187,4 +196,5 @@ def restaurant_dashboard(request, pk: int):
         ],
     }
 
+    cache.set(cache_key, data, timeout=60)  # cache for 60s
     return Response(data)
